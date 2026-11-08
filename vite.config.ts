@@ -1,5 +1,5 @@
-import { copyFileSync, existsSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
@@ -18,51 +18,6 @@ function hasGlobbedMigrations(root: string): boolean {
     return readdirSync(join(root, "migrations")).some(isMigrationFile);
   } catch {
     return false;
-  }
-}
-
-/**
- * Nitro bundles PGLite but drops the sibling wasm/data files that
- * `new URL("./pglite.data", import.meta.url)` loads at runtime. Without them
- * the built preview (no DATABASE_URL) crashes on boot. Copy them next to the
- * bundled module. Deployed apps with DATABASE_URL never open these files.
- */
-function copyPgliteRuntimeAssets(nitro: {
-  options: { output: { dir: string; serverEntry?: string } };
-}) {
-  const root = nitro.options.output.dir;
-  const hits: string[] = [];
-  const walk = (dir: string) => {
-    let entries: string[];
-    try {
-      entries = readdirSync(dir);
-    } catch {
-      return;
-    }
-    for (const name of entries) {
-      const full = join(dir, name);
-      if (name === "electric-sql__pglite.mjs") hits.push(full);
-      else if (!name.startsWith(".") && existsSync(full)) {
-        try {
-          if (readdirSync(full).length >= 0 && name !== "node_modules") walk(full);
-        } catch {
-          /* file */
-        }
-      }
-    }
-  };
-  walk(root);
-  const srcDir = join(process.cwd(), "node_modules/@electric-sql/pglite/dist");
-  for (const hit of hits) {
-    const destDir = dirname(hit);
-    for (const name of ["pglite.data", "pglite.wasm", "initdb.wasm"]) {
-      const from = join(srcDir, name);
-      if (!existsSync(from)) continue;
-      copyFileSync(from, join(destDir, name));
-    }
-  }
-  if (hits.length === 0) {
-    console.error("[pglite] bundled module not found under", root);
   }
 }
 
@@ -219,12 +174,9 @@ export default defineConfig(({ command, isPreview }) => ({
             // Auto-registers server/middleware/* (the PWA install page +
             // manifest + head-tag middleware). Nitro v3 defaults serverDir to
             // false, so removing this silently unwires /?install=1 on deploys.
+            // Do not pass `hooks` here. A `compiled` hook replaces the Vercel
+            // preset hook that writes `.vercel/output/config.json`.
             serverDir: "./server",
-            hooks: {
-              compiled(built) {
-                copyPgliteRuntimeAssets(built);
-              },
-            },
           }),
         ]
       : []),

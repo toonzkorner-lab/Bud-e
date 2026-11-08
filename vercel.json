@@ -1,5 +1,4 @@
 {
   "framework": "tanstack-start",
-  "outputDirectory": ".vercel/output",
   "installCommand": "npm install --omit=dev --no-audit --no-fund"
 }
