@@ -26,6 +26,7 @@ import {
   type StashBook,
   type Vibe,
 } from "@/lib/bude";
+import { askBuddy } from "@/lib/buddy-client";
 import { playDone, playPause, playStart, primeAudio, setSoundEnabled } from "@/lib/sounds";
 import { isThemeId, type ThemeId } from "@/lib/themes";
 
@@ -144,7 +145,7 @@ export function BudeProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [hydrated, setHydrated] = useState(false);
-  const replyTimer = useRef<number | null>(null);
+  const sendGen = useRef(0);
   const stashSettled = useRef(false);
 
   useEffect(() => {
@@ -232,12 +233,6 @@ export function BudeProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(KEYS.theme, JSON.stringify(theme));
   }, [theme, hydrated]);
 
-  useEffect(() => {
-    return () => {
-      if (replyTimer.current) window.clearTimeout(replyTimer.current);
-    };
-  }, []);
-
   const setAge = useCallback((next: Age) => setAgeState(next), []);
   const setTab = useCallback((next: Tab) => {
     setTabState(next);
@@ -264,6 +259,7 @@ export function BudeProvider({ children }: { children: ReactNode }) {
   const closeTool = useCallback(() => setTool(null), []);
 
   const clearChat = useCallback(() => {
+    sendGen.current += 1;
     setMessages([]);
     setPending(false);
   }, []);
@@ -274,11 +270,13 @@ export function BudeProvider({ children }: { children: ReactNode }) {
       if (!trimmed || pending) return;
       const userMsg: ChatMessage = { id: crypto.randomUUID(), role: "user", text: trimmed };
       const prior = messages;
+      const gen = ++sendGen.current;
       setMessages((m) => [...m, userMsg]);
       setPending(true);
-      if (replyTimer.current) window.clearTimeout(replyTimer.current);
-      replyTimer.current = window.setTimeout(() => {
-        const reply = replyTo(trimmed, session, prior);
+      const local = replyTo(trimmed, session, prior);
+      void (async () => {
+        const reply = local.safety ? local : ((await askBuddy({ message: trimmed, history: prior, session }).catch(() => null)) ?? local);
+        if (sendGen.current !== gen) return;
         setMessages((m) => [
           ...m,
           {
@@ -290,7 +288,7 @@ export function BudeProvider({ children }: { children: ReactNode }) {
           },
         ]);
         setPending(false);
-      }, 280);
+      })();
     },
     [messages, pending, session],
   );
@@ -371,10 +369,7 @@ export function BudeProvider({ children }: { children: ReactNode }) {
     setSoundOn(on);
   }, []);
   const resetPhone = useCallback(() => {
-    if (replyTimer.current) {
-      window.clearTimeout(replyTimer.current);
-      replyTimer.current = null;
-    }
+    sendGen.current += 1;
     setSession(null);
     setStash(emptyBook());
     setMessages([]);
