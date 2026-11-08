@@ -54,7 +54,8 @@ export async function askGemini(input: {
 }): Promise<BuddyReply | null> {
   const key = process.env.GEMINI_API_KEY?.trim();
   if (!key) return null;
-  const model = process.env.GEMINI_MODEL?.trim() || "gemini-3.8-flash";
+  const preferred = process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash";
+  const models = [...new Set([preferred, "gemini-3.5-flash", "gemini-3.6-flash"])];
   const contents = [
     ...input.history.slice(-8).map((turn) => ({
       role: turn.role === "bud" ? "model" : "user",
@@ -65,6 +66,22 @@ export async function askGemini(input: {
       parts: [{ text: `Tonight: ${sessionBrief(input.session)}\n\n${input.message.slice(0, 800)}` }],
     },
   ];
+  for (const model of models) {
+    try {
+      const reply = await callModel(model, key, contents);
+      if (reply) return reply;
+    } catch {
+      /* try the next model */
+    }
+  }
+  return null;
+}
+
+async function callModel(
+  model: string,
+  key: string,
+  contents: { role: string; parts: { text: string }[] }[],
+): Promise<BuddyReply | null> {
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
     {
@@ -79,8 +96,10 @@ export async function askGemini(input: {
         contents,
         generationConfig: {
           temperature: 0.6,
-          maxOutputTokens: 400,
+          maxOutputTokens: 500,
           responseMimeType: "application/json",
+          // These models spend the whole budget on hidden thoughts unless this is 0.
+          thinkingConfig: { thinkingBudget: 0 },
         },
       }),
     },
