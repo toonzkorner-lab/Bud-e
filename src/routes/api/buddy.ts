@@ -40,9 +40,10 @@ export const Route = createFileRoute("/api/buddy")({
             history.push({ role: item.role, text: item.text.slice(0, 800) });
           }
         }
-        const reply = await askGemini({ message, history, session: readSession(row.session) });
-        if (!reply) return Response.json({ error: "unavailable" }, { status: 503 });
-        return Response.json(reply);
+        const result = await askGemini({ message, history, session: readSession(row.session) });
+        if (result.reply) return Response.json(result.reply);
+        if (result.status === 429) return Response.json({ error: "quota" }, { status: 429 });
+        return Response.json({ error: "unavailable" }, { status: 503 });
       },
     },
   },

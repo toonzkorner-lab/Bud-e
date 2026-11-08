@@ -238,6 +238,19 @@ function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+export function directAnswer(raw: string): BuddyReply | null {
+  const q = raw.trim().toLowerCase();
+  const dab =
+    /\b(\d+(?:\.\d+)?)\s*(g|grams?)\b.{0,40}\b(dab|dabs|wax|shatter|rosin|concentrate)s?\b/i.exec(q) ??
+    /\b(dab|dabs|wax|shatter|rosin|concentrate)s?\b.{0,40}\b(\d+(?:\.\d+)?)\s*(g|grams?)\b/i.exec(q);
+  if (!dab) return null;
+  const amount = Number(dab[1] && /\d/.test(dab[1]) ? dab[1] : dab[2]);
+  if (!Number.isFinite(amount) || amount < 0.25) return null;
+  return {
+    text: `No. ${amount} grams of concentrate is not one dab. A normal dab is a crumb, usually well under a tenth of a gram. That much at once can make you sick, panicky, or black out. If you dab, one small hit, then wait 15–20 minutes. Don't do ${amount} grams at once.`,
+  };
+}
+
 export function replyTo(
   raw: string,
   session: Session | null,

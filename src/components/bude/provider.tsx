@@ -13,6 +13,7 @@ import {
   emptyBook,
   minutesSince,
   replyTo,
+  directAnswer,
   settleBook,
   adjustBook,
   timerNoteFor,
@@ -273,9 +274,12 @@ export function BudeProvider({ children }: { children: ReactNode }) {
       const gen = ++sendGen.current;
       setMessages((m) => [...m, userMsg]);
       setPending(true);
+      const direct = directAnswer(trimmed);
       const local = replyTo(trimmed, session, prior);
       void (async () => {
-        const reply = local.safety ? local : ((await askBuddy({ message: trimmed, history: prior, session }).catch(() => null)) ?? local);
+        const reply =
+          direct ??
+          (local.safety ? local : ((await askBuddy({ message: trimmed, history: prior, session }).catch(() => null)) ?? local));
         if (sendGen.current !== gen) return;
         setMessages((m) => [
           ...m,

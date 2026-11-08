@@ -18,7 +18,11 @@ export async function askBuddy(input: {
       session: input.session,
     }),
   });
-  if (!response.ok) return null;
+  if (response.status === 429) {
+    return {
+      text: "Gemini's free limit is used up for now. Wait a minute and ask again. If it keeps happening, the daily free cap is gone until tomorrow.",
+    };
+  }
   const data = (await response.json()) as Partial<BuddyReply>;
   if (!data || typeof data.text !== "string" || !data.text.trim()) return null;
   return {

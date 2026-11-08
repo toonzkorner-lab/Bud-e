@@ -51,9 +51,9 @@ export async function askGemini(input: {
   message: string;
   history: Turn[];
   session: Session | null;
-}): Promise<BuddyReply | null> {
+}): Promise<{ reply: BuddyReply | null; status: number }> {
   const key = process.env.GEMINI_API_KEY?.trim();
-  if (!key) return null;
+  if (!key) return { reply: null, status: 0 };
   const model = process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash";
   const contents = [
     ...input.history.slice(-8).map((turn) => ({
@@ -76,7 +76,7 @@ export async function askGemini(input: {
     const backup = model === "gemini-3.6-flash" ? "gemini-3.5-flash" : "gemini-3.6-flash";
     attempt = await callModel(backup, key, contents);
   }
-  return attempt.reply;
+  return { reply: attempt.reply, status: attempt.status };
 }
 
 function delay(ms: number): Promise<void> {
