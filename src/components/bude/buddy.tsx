@@ -35,7 +35,7 @@ export function BuddyPanel() {
         <div className="flex items-end justify-between gap-3">
           <div>
             <h1 className="font-display text-4xl leading-none font-medium">Buddy</h1>
-            <p className="mt-2 text-sm text-muted">Live when Gemini is connected. Not a doctor.</p>
+            <p className="mt-2 text-sm text-muted">Live on Groq. Not a doctor.</p>
           </div>
         </div>
 

@@ -20,7 +20,7 @@ export async function askBuddy(input: {
   });
   if (response.status === 429) {
     return {
-      text: "Gemini's free limit is used up for now. Wait a minute and ask again. If it keeps happening, the daily free cap is gone until tomorrow.",
+      text: "Groq is busy right now. Wait a few seconds and ask again.",
     };
   }
   const data = (await response.json()) as Partial<BuddyReply>;

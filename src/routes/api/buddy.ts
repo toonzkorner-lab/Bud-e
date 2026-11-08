@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { askGemini } from "@/lib/buddy-ai.server";
+import { askGroq } from "@/lib/buddy-ai.server";
 import type { Session } from "@/lib/bude";
 
 const METHODS = new Set(["flower", "edible", "vape", "dab", "drink", "other"]);
@@ -40,7 +40,7 @@ export const Route = createFileRoute("/api/buddy")({
             history.push({ role: item.role, text: item.text.slice(0, 800) });
           }
         }
-        const result = await askGemini({ message, history, session: readSession(row.session) });
+        const result = await askGroq({ message, history, session: readSession(row.session) });
         if (result.reply) return Response.json(result.reply);
         if (result.status === 429) return Response.json({ error: "quota" }, { status: 429 });
         return Response.json({ error: "unavailable" }, { status: 503 });

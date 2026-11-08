@@ -47,34 +47,33 @@ export function parseBuddyJson(raw: string): BuddyReply | null {
   return { text, action, safety };
 }
 
-export async function askGemini(input: {
+export async function askGroq(input: {
   message: string;
   history: Turn[];
   session: Session | null;
 }): Promise<{ reply: BuddyReply | null; status: number }> {
-  const key = process.env.GEMINI_API_KEY?.trim();
+  const key = process.env.GROQ_API_KEY?.trim();
   if (!key) return { reply: null, status: 0 };
-  const model = process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash";
-  const contents = [
+  const model = process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-120b";
+  const messages = [
+    { role: "system", content: SYSTEM },
     ...input.history.slice(-8).map((turn) => ({
-      role: turn.role === "bud" ? "model" : "user",
-      parts: [{ text: turn.text.slice(0, 800) }],
+      role: turn.role === "bud" ? "assistant" : "user",
+      content: turn.text.slice(0, 800),
     })),
     {
       role: "user",
-      parts: [{ text: `Tonight: ${sessionBrief(input.session)}\n\n${input.message.slice(0, 800)}` }],
+      content: `Tonight: ${sessionBrief(input.session)}\n\n${input.message.slice(0, 800)}`,
     },
   ];
-  // Free-tier Gemini allows about 5 requests a minute. A second model call
-  // burns that budget, which is why some messages fell through to the script.
-  let attempt = await callModel(model, key, contents);
+  let attempt = await callGroq(model, key, messages);
   if (!attempt.reply && attempt.status === 429) {
     await delay(attempt.retryMs);
-    attempt = await callModel(model, key, contents);
+    attempt = await callGroq(model, key, messages);
   }
-  if (!attempt.reply && attempt.status === 503) {
-    const backup = model === "gemini-3.6-flash" ? "gemini-3.5-flash" : "gemini-3.6-flash";
-    attempt = await callModel(backup, key, contents);
+  if (!attempt.reply && (attempt.status === 503 || attempt.status === 429)) {
+    const backup = model === "openai/gpt-oss-20b" ? "qwen/qwen3.8-27b" : "openai/gpt-oss-20b";
+    attempt = await callGroq(backup, key, messages);
   }
   return { reply: attempt.reply, status: attempt.status };
 }
@@ -83,52 +82,41 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function callModel(
+async function callGroq(
   model: string,
   key: string,
-  contents: { role: string; parts: { text: string }[] }[],
+  messages: { role: string; content: string }[],
 ): Promise<{ reply: BuddyReply | null; status: number; retryMs: number }> {
   let response: Response;
   try {
-    response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-goog-api-key": key,
-        },
-        signal: AbortSignal.timeout(18_000),
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: SYSTEM }] },
-          contents,
-          safetySettings: [
-            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
-            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
-            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
-          ],
-          generationConfig: {
-            temperature: 0.6,
-            maxOutputTokens: 500,
-            responseMimeType: "application/json",
-            thinkingConfig: { thinkingBudget: 0 },
-          },
-        }),
+    response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${key}`,
+        "user-agent": "bud-e/1.0",
       },
-    );
+      signal: AbortSignal.timeout(20_000),
+      body: JSON.stringify({
+        model,
+        temperature: 0.6,
+        max_tokens: 500,
+        response_format: { type: "json_object" },
+        messages,
+      }),
+    });
   } catch {
-    return { reply: null, status: 0, retryMs: 8_000 };
+    return { reply: null, status: 0, retryMs: 4_000 };
   }
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    const match = /retry in ([\d.]+)s/i.exec(detail);
-    const retryMs = match ? Math.min(Math.ceil(Number(match[1]) * 1000) + 400, 15_000) : 8_000;
+    const match = /try again in ([\d.]+)s/i.exec(detail);
+    const retryMs = match ? Math.min(Math.ceil(Number(match[1]) * 1000) + 300, 8_000) : 2_000;
     return { reply: null, status: response.status, retryMs };
   }
   const payload = (await response.json()) as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
+    choices?: { message?: { content?: string } }[];
   };
-  const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
+  const text = payload.choices?.[0]?.message?.content ?? "";
   return { reply: parseBuddyJson(text), status: 200, retryMs: 0 };
 }
