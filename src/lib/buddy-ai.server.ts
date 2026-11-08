@@ -54,7 +54,7 @@ export async function askGemini(input: {
 }): Promise<BuddyReply | null> {
   const key = process.env.GEMINI_API_KEY?.trim();
   if (!key) return null;
-  const model = process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash";
+  const model = process.env.GEMINI_MODEL?.trim() || "gemini-3.8-flash";
   const contents = [
     ...input.history.slice(-8).map((turn) => ({
       role: turn.role === "bud" ? "model" : "user",
