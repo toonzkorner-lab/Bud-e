@@ -47,14 +47,11 @@ export function parseBuddyJson(raw: string): BuddyReply | null {
   return { text, action, safety };
 }
 
-export async function askGroq(input: {
+export async function askBuddyModel(input: {
   message: string;
   history: Turn[];
   session: Session | null;
 }): Promise<{ reply: BuddyReply | null; status: number }> {
-  const key = process.env.GROQ_API_KEY?.trim();
-  if (!key) return { reply: null, status: 0 };
-  const model = process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-120b";
   const messages = [
     { role: "system", content: SYSTEM },
     ...input.history.slice(-8).map((turn) => ({
@@ -66,15 +63,21 @@ export async function askGroq(input: {
       content: `Tonight: ${sessionBrief(input.session)}\n\n${input.message.slice(0, 800)}`,
     },
   ];
-  let attempt = await callGroq(model, key, messages);
-  if (!attempt.reply && attempt.status === 429) {
-    await delay(attempt.retryMs);
-    attempt = await callGroq(model, key, messages);
+  // Grok publishes inject XAI_API_KEY. A Groq key set on a personal Vercel
+  // project never arrives there, which is why that host answered "unavailable".
+  const xai = process.env.XAI_API_KEY?.trim();
+  if (xai) {
+    let attempt = await callChat("https://api.x.ai/v1/chat/completions", "grok-4.5", xai, messages);
+    if (!attempt.reply && attempt.status === 429) {
+      await delay(attempt.retryMs);
+      attempt = await callChat("https://api.x.ai/v1/chat/completions", "grok-4.5", xai, messages);
+    }
+    if (attempt.reply || !process.env.GROQ_API_KEY?.trim()) return { reply: attempt.reply, status: attempt.status };
   }
-  if (!attempt.reply && (attempt.status === 503 || attempt.status === 429)) {
-    const backup = model === "openai/gpt-oss-20b" ? "qwen/qwen3.8-27b" : "openai/gpt-oss-20b";
-    attempt = await callGroq(backup, key, messages);
-  }
+  const groq = process.env.GROQ_API_KEY?.trim();
+  if (!groq) return { reply: null, status: 0 };
+  const model = process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-120b";
+  const attempt = await callChat("https://api.groq.com/openai/v1/chat/completions", model, groq, messages);
   return { reply: attempt.reply, status: attempt.status };
 }
 
@@ -82,14 +85,15 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function callGroq(
+async function callChat(
+  url: string,
   model: string,
   key: string,
   messages: { role: string; content: string }[],
 ): Promise<{ reply: BuddyReply | null; status: number; retryMs: number }> {
   let response: Response;
   try {
-    response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    response = await fetch(url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
