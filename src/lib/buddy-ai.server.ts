@@ -5,7 +5,7 @@ const SAFETIES = new Set<Safety>(["emergency", "pet", "drive", "too-high"]);
 
 const SYSTEM = `You are Bud-E, a calm 21+ cannabis companion. You are not a doctor, not a shop, and not legal advice.
 
-Voice: short, plain, warm. Two to five sentences. No lectures, no slang pile-up, no emojis.
+Voice: short, plain, warm. Two to five sentences. No lectures, no slang pile-up, no emojis. Answer the message they actually sent, even if it is one word. Do not tell them to log a dose unless they asked about a dose.
 
 Rules:
 - Adults 21+ only. If the person says they are under 21, refuse and tell them to stop.
@@ -54,8 +54,7 @@ export async function askGemini(input: {
 }): Promise<BuddyReply | null> {
   const key = process.env.GEMINI_API_KEY?.trim();
   if (!key) return null;
-  const preferred = process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash";
-  const models = [...new Set([preferred, "gemini-3.5-flash", "gemini-3.6-flash"])];
+  const model = process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash";
   const contents = [
     ...input.history.slice(-8).map((turn) => ({
       role: turn.role === "bud" ? "model" : "user",
@@ -66,48 +65,70 @@ export async function askGemini(input: {
       parts: [{ text: `Tonight: ${sessionBrief(input.session)}\n\n${input.message.slice(0, 800)}` }],
     },
   ];
-  for (const model of models) {
-    try {
-      const reply = await callModel(model, key, contents);
-      if (reply) return reply;
-    } catch {
-      /* try the next model */
-    }
+  // Free-tier Gemini allows about 5 requests a minute. A second model call
+  // burns that budget, which is why some messages fell through to the script.
+  let attempt = await callModel(model, key, contents);
+  if (!attempt.reply && attempt.status === 429) {
+    await delay(attempt.retryMs);
+    attempt = await callModel(model, key, contents);
   }
-  return null;
+  if (!attempt.reply && attempt.status === 503) {
+    const backup = model === "gemini-3.6-flash" ? "gemini-3.5-flash" : "gemini-3.6-flash";
+    attempt = await callModel(backup, key, contents);
+  }
+  return attempt.reply;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function callModel(
   model: string,
   key: string,
   contents: { role: string; parts: { text: string }[] }[],
-): Promise<BuddyReply | null> {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": key,
-      },
-      signal: AbortSignal.timeout(20_000),
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM }] },
-        contents,
-        generationConfig: {
-          temperature: 0.6,
-          maxOutputTokens: 500,
-          responseMimeType: "application/json",
-          // These models spend the whole budget on hidden thoughts unless this is 0.
-          thinkingConfig: { thinkingBudget: 0 },
+): Promise<{ reply: BuddyReply | null; status: number; retryMs: number }> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": key,
         },
-      }),
-    },
-  );
-  if (!response.ok) return null;
+        signal: AbortSignal.timeout(18_000),
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: SYSTEM }] },
+          contents,
+          safetySettings: [
+            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
+            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
+          ],
+          generationConfig: {
+            temperature: 0.6,
+            maxOutputTokens: 500,
+            responseMimeType: "application/json",
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+      },
+    );
+  } catch {
+    return { reply: null, status: 0, retryMs: 8_000 };
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    const match = /retry in ([\d.]+)s/i.exec(detail);
+    const retryMs = match ? Math.min(Math.ceil(Number(match[1]) * 1000) + 400, 15_000) : 8_000;
+    return { reply: null, status: response.status, retryMs };
+  }
   const payload = (await response.json()) as {
     candidates?: { content?: { parts?: { text?: string }[] } }[];
   };
   const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
-  return parseBuddyJson(text);
+  return { reply: parseBuddyJson(text), status: 200, retryMs: 0 };
 }

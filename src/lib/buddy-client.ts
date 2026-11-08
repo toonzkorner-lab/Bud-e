@@ -8,7 +8,7 @@ export async function askBuddy(input: {
   const response = await fetch("/api/buddy", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    signal: AbortSignal.timeout(25_000),
+    signal: AbortSignal.timeout(40_000),
     body: JSON.stringify({
       message: input.message,
       history: input.history.slice(-8).map((turn) => ({

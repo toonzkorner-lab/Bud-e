@@ -381,9 +381,7 @@ export function replyTo(
     };
   }
   return {
-    text: session
-      ? `Got you. For tonight's ${phrase}: start low, go slow, drink some water, and don't drive. Ask me when it'll hit, whether to take more, or what to do if it feels like too much.`
-      : "Got you. Tell me what you took and when — edible, flower, vape — and I'll use your real numbers instead of a guess. Or just say how you feel.",
+    text: "I missed that one. Ask it again in a few seconds and I'll answer it properly.",
   };
 }
 
