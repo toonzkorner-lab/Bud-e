@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { THEMES } from "@/lib/themes";
+import { LIT_THEMES, tierAtLeast } from "@/lib/premium";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import { Card } from "./bits";
@@ -42,6 +43,7 @@ export function SettingsPanel() {
     setSound,
     theme,
     setTheme,
+    tier,
     closeSettings,
     setTab,
     clearChat,
@@ -66,18 +68,20 @@ export function SettingsPanel() {
 
       <Card>
         <p className="text-xs font-semibold tracking-[0.18em] text-accent uppercase">Appearance</p>
-        <p className="mt-2 mb-3 text-sm text-muted">Swap the whole garden. It stays on this phone.</p>
+        <p className="mt-2 mb-3 text-sm text-muted">Night and day stay free. Lit opens the rest.</p>
         <div className="grid grid-cols-2 gap-2">
           {THEMES.map((item) => {
+            const locked = (LIT_THEMES as readonly string[]).includes(item.id) && !tierAtLeast(tier, "lit");
             const on = theme === item.id;
             return (
               <button
                 key={item.id}
                 type="button"
                 aria-pressed={on}
+                disabled={locked}
                 onClick={() => setTheme(item.id)}
                 className={cn(
-                  "theme-swatch min-h-24 rounded-2xl border p-3 text-left",
+                  "theme-swatch min-h-24 rounded-2xl border p-3 text-left disabled:opacity-60",
                   on ? "border-accent" : "border-transparent",
                 )}
                 data-swatch={item.id}
@@ -91,7 +95,7 @@ export function SettingsPanel() {
                   <span className="text-sm font-semibold">{item.name}</span>
                 </span>
                 <span className="mt-2 block h-2 rounded-full" style={{ background: "var(--swatch-card)" }} />
-                <span className="mt-2 block text-xs opacity-80">{item.detail}</span>
+                <span className="mt-2 block text-xs opacity-80">{locked ? "Lit" : item.detail}</span>
               </button>
             );
           })}

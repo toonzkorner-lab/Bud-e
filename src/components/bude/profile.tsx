@@ -4,6 +4,7 @@ import { hasGateSessionMarker } from "@/lib/auth/gate-session-marker";
 import { useCurrentUser } from "@/lib/auth/use-current-user";
 import { Button } from "@/components/ui/button";
 import { Card } from "./bits";
+import { PremiumPanel } from "./premium";
 import { useBude } from "./provider";
 
 const subscribeToNothing = () => () => {};
@@ -117,6 +118,8 @@ export function ProfilePanel() {
           </form>
         )}
       </Card>
+
+      <PremiumPanel />
 
       <Button className="mt-3 w-full" variant="secondary" onClick={openSettings}>
         Settings

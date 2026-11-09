@@ -1,13 +1,18 @@
 import type { BuddyReply, Session } from "@/lib/bude";
+import { getBearerToken } from "@/lib/auth/client";
 
 export async function askBuddy(input: {
   message: string;
   history: { role: string; text: string }[];
   session: Session | null;
 }): Promise<BuddyReply | null> {
+  const token = getBearerToken();
   const response = await fetch("/api/buddy", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
     signal: AbortSignal.timeout(40_000),
     body: JSON.stringify({
       message: input.message,

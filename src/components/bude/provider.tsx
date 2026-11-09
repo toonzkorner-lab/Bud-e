@@ -31,6 +31,24 @@ import { pullChats, removeChat, saveChat, wipeChats } from "@/lib/chats.function
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { playDone, playPause, playStart, primeAudio, setSoundEnabled } from "@/lib/sounds";
 import { isThemeId, type ThemeId } from "@/lib/themes";
+import {
+  isPersonaId,
+  tierAtLeast,
+  type Membership,
+  type PersonaId,
+  type Tier,
+} from "@/lib/premium";
+import {
+  confirmCheckout,
+  getMembership,
+  grantPreviewTier,
+  makeMine,
+  removePlan,
+  saveLook,
+  savePlan,
+  startCheckout,
+} from "@/lib/premium.functions";
+import { playTrack, stopMusic, type TrackId } from "@/lib/music";
 
 export type Tab = "tonight" | "buddy" | "log" | "stash" | "tools" | "plan" | "you";
 export type ToolId = "timer" | "breathe" | "munchies" | "thoughts" | "trivia" | "guide" | "effects";
@@ -91,6 +109,24 @@ type Ctx = {
   setSound: (on: boolean) => void;
   theme: ThemeId;
   setTheme: (theme: ThemeId) => void;
+  tier: Tier;
+  shopOpen: boolean;
+  previewTiers: boolean;
+  buyTier: (tier: "lit" | "cloud") => Promise<"sent" | "closed" | "failed">;
+  tryTier: (tier: Tier) => Promise<void>;
+  persona: PersonaId;
+  customName: string;
+  customVoice: string;
+  accent: string;
+  themeName: string;
+  setPersona: (persona: PersonaId) => void;
+  setAccent: (accent: string) => void;
+  makeCustom: (prompt: string, accent: string) => Promise<void>;
+  savedPlans: Membership["plans"];
+  saveCurrentPlan: (title: string, body: string) => Promise<"saved" | "limit" | "failed">;
+  deleteSavedPlan: (id: string) => void;
+  track: TrackId | null;
+  setTrack: (track: TrackId | null) => void;
   settingsOpen: boolean;
   openSettings: () => void;
   closeSettings: () => void;
@@ -98,6 +134,18 @@ type Ctx = {
 };
 
 const BudeContext = createContext<Ctx | null>(null);
+
+const EMPTY_MEMBERSHIP: Membership = {
+  tier: "free",
+  persona: "bud",
+  customName: "",
+  customVoice: "",
+  accent: "",
+  themeName: "",
+  plans: [],
+  preview: false,
+  shop: false,
+};
 
 const KEYS = {
   age: "bude-age-v2",
@@ -137,6 +185,8 @@ export function BudeProvider({ children }: { children: ReactNode }) {
   const [tab, setTabState] = useState<Tab>("tonight");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [theme, setThemeState] = useState<ThemeId>("night");
+  const [membership, setMembership] = useState<Membership>(EMPTY_MEMBERSHIP);
+  const [track, setTrackState] = useState<TrackId | null>(null);
   const [tool, setTool] = useState<ToolId | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [vibe, setVibeState] = useState<Vibe>(EMPTY_VIBE);
@@ -154,6 +204,35 @@ export function BudeProvider({ children }: { children: ReactNode }) {
   const stashSettled = useRef(false);
   const { user, isPending } = useCurrentUserState();
   const userId = user?.id ?? null;
+
+  useEffect(() => {
+    if (!hydrated || isPending || !userId) return;
+    let cancel = false;
+    void (async () => {
+      const params = new URLSearchParams(window.location.search);
+      const checkout = params.get("premium");
+      if (checkout?.startsWith("cs_")) {
+        const confirmed = await confirmCheckout({ data: checkout }).catch(() => null);
+        if (!cancel && confirmed?.ok) setMembership(confirmed.membership);
+        params.delete("premium");
+        const next = params.toString();
+        window.history.replaceState(null, "", `${window.location.pathname}${next ? `?${next}` : ""}`);
+        if (confirmed?.ok) return;
+      }
+      const loaded = await getMembership().catch(() => null);
+      if (!cancel && loaded) setMembership(loaded);
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [hydrated, isPending, userId]);
+
+  useEffect(() => {
+    if (track && !tierAtLeast(membership.tier, "cloud")) {
+      stopMusic();
+      setTrackState(null);
+    }
+  }, [track, membership.tier]);
 
   useEffect(() => {
     setAgeState(readJson<Age>(KEYS.age, "unknown"));
@@ -203,7 +282,10 @@ export function BudeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-  }, [theme]);
+    const root = document.documentElement;
+    if (membership.accent && tierAtLeast(membership.tier, "lit")) root.style.setProperty("--color-accent", membership.accent);
+    else root.style.removeProperty("--color-accent");
+  }, [theme, membership.accent, membership.tier]);
 
   useEffect(() => {
     if (!hydrated || stashSettled.current) return;
@@ -268,7 +350,79 @@ export function BudeProvider({ children }: { children: ReactNode }) {
   }, []);
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
-  const setTheme = useCallback((next: ThemeId) => setThemeState(next), []);
+  const setTheme = useCallback(
+    (next: ThemeId) => {
+      const locked = (next === "velvet" || next === "grove" || next === "hours") && !tierAtLeast(membership.tier, "lit");
+      if (locked) return;
+      setThemeState(next);
+    },
+    [membership.tier],
+  );
+  const buyTier = useCallback(async (next: "lit" | "cloud") => {
+    const result = await startCheckout({ data: next }).catch(() => null);
+    if (result?.ok && result.url) {
+      window.location.assign(result.url);
+      return "sent" as const;
+    }
+    return result && !result.ok ? ("closed" as const) : ("failed" as const);
+  }, []);
+  const tryTier = useCallback(async (next: Tier) => {
+    const result = await grantPreviewTier({ data: next }).catch(() => null);
+    if (result?.ok) setMembership(result.membership);
+  }, []);
+  const setPersona = useCallback(
+    (persona: PersonaId) => {
+      if (!isPersonaId(persona)) return;
+      void saveLook({ data: { persona, accent: membership.accent } })
+        .then((result) => {
+          if (result.ok) setMembership(result.membership);
+        })
+        .catch(() => undefined);
+    },
+    [membership.accent],
+  );
+  const setAccent = useCallback(
+    (accent: string) => {
+      void saveLook({ data: { persona: membership.persona, accent } })
+        .then((result) => {
+          if (result.ok) setMembership(result.membership);
+        })
+        .catch(() => undefined);
+    },
+    [membership.persona],
+  );
+  const makeCustom = useCallback(async (prompt: string, accent: string) => {
+    const result = await makeMine({ data: { prompt, accent } }).catch(() => null);
+    if (result?.ok) setMembership(result.membership);
+  }, []);
+  const saveCurrentPlan = useCallback(async (title: string, body: string) => {
+    const result = await savePlan({ data: { title, body } }).catch(() => null);
+    if (result?.ok) {
+      setMembership(result.membership);
+      return "saved" as const;
+    }
+    return result && "error" in result && result.error === "limit" ? ("limit" as const) : ("failed" as const);
+  }, []);
+  const deleteSavedPlan = useCallback((id: string) => {
+    void removePlan({ data: id })
+      .then((result) => {
+        if (result.ok) setMembership(result.membership);
+      })
+      .catch(() => undefined);
+  }, []);
+  const setTrack = useCallback(
+    (next: TrackId | null) => {
+      if (!next) {
+        stopMusic();
+        setTrackState(null);
+        return;
+      }
+      if (!tierAtLeast(membership.tier, "cloud")) return;
+      playTrack(next);
+      setTrackState(next);
+    },
+    [membership.tier],
+  );
   const saveSession = useCallback((next: Session) => {
     setSession(next);
     setStash((book) => settleBook(book, next));
@@ -581,6 +735,24 @@ export function BudeProvider({ children }: { children: ReactNode }) {
     setSound,
     theme,
     setTheme,
+    tier: membership.tier,
+    shopOpen: membership.shop,
+    previewTiers: membership.preview,
+    buyTier,
+    tryTier,
+    persona: membership.persona,
+    customName: membership.customName,
+    customVoice: membership.customVoice,
+    accent: membership.accent,
+    themeName: membership.themeName,
+    setPersona,
+    setAccent,
+    makeCustom,
+    savedPlans: membership.plans,
+    saveCurrentPlan,
+    deleteSavedPlan,
+    track,
+    setTrack,
     settingsOpen,
     openSettings,
     closeSettings,

@@ -12,14 +12,16 @@ import {
   type Sound,
   type Vibe,
 } from "@/lib/bude";
+import { planLimit } from "@/lib/premium";
 import { Button } from "@/components/ui/button";
 import { Card, Chip, ChipRow, Label } from "./bits";
 import { useBude } from "./provider";
 
 export function PlanPanel() {
-  const { session, vibe, setVibe, timerNote, setTab, now } = useBude();
+  const { session, vibe, setVibe, timerNote, setTab, now, savedPlans, saveCurrentPlan, deleteSavedPlan, tier } = useBude();
   const plan = buildPlan(session, vibe, timerNote, new Date(now));
   const [copied, setCopied] = useState(false);
+  const [saveNote, setSaveNote] = useState<string | null>(null);
 
   async function copy() {
     try {
@@ -74,7 +76,40 @@ export function PlanPanel() {
             "Copy plan"
           )}
         </Button>
+        <Button
+          className="mt-2 w-full"
+          variant="secondary"
+          onClick={() => {
+            const title = plan.rows[0]?.value || "Tonight";
+            void saveCurrentPlan(title, plan.plain).then((result) => {
+              setSaveNote(result === "saved" ? "Saved to your account." : result === "limit" ? "Free keeps one plan. Lit keeps all of them." : "Couldn't save that.");
+            });
+          }}
+        >
+          Save plan
+        </Button>
+        {saveNote && <p className="mt-2 text-sm text-muted">{saveNote}</p>}
       </Card>
+
+      {savedPlans.length > 0 && (
+        <Card className="mt-3">
+          <p className="text-xs font-semibold tracking-[0.18em] text-accent uppercase">Saved</p>
+          <p className="mt-2 text-sm text-muted">
+            {savedPlans.length} of {planLimit(tier)} on this account.
+          </p>
+          <ul className="mt-3 space-y-3">
+            {savedPlans.map((item) => (
+              <li key={item.id} className="border-t border-line pt-3">
+                <p className="text-sm font-semibold capitalize">{item.title}</p>
+                <p className="mt-1 line-clamp-3 text-sm whitespace-pre-wrap text-muted">{item.body}</p>
+                <button type="button" className="mt-1 text-xs text-danger" onClick={() => deleteSavedPlan(item.id)}>
+                  Delete
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <div className="mt-3">
         <VibeEditor vibe={vibe} setVibe={setVibe} />

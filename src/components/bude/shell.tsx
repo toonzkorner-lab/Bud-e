@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { BuddyPanel } from "./buddy";
 import { JournalPanel } from "./journal";
 import { PlanPanel } from "./plan";
+import { TRACKS } from "@/lib/music";
 import { StashPanel } from "./stash";
 import { BudeProvider, useBude, type Tab } from "./provider";
 import { authEnabled } from "@/lib/auth/client";
@@ -117,7 +118,7 @@ const NAV: { id: Tab; label: string; icon: typeof Moon }[] = [
 ];
 
 function AppFrame() {
-  const { tab, setTab, timer, remainingSec, openTool, session, soundOn, toggleSound, settingsOpen, openSettings } =
+  const { tab, setTab, timer, remainingSec, openTool, session, soundOn, toggleSound, settingsOpen, openSettings, track, setTrack } =
     useBude();
   const user = useCurrentUser();
   const who = user && !user.isDevFallback ? user.displayName : null;
@@ -166,6 +167,14 @@ function AppFrame() {
           </p>
         </div>
       </header>
+      {track && (
+        <div className="mx-4 mb-2 flex items-center justify-between rounded-full border border-line bg-card px-3 py-1.5">
+          <p className="text-xs font-semibold">{TRACKS.find((item) => item.id === track)?.name} · playing</p>
+          <button type="button" className="text-xs text-muted" onClick={() => setTrack(null)}>
+            Stop
+          </button>
+        </div>
+      )}
 
       {showTimer && (
         <button

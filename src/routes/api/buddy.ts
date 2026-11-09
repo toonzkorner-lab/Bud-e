@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { askBuddyModel } from "@/lib/buddy-ai.server";
 import type { Session } from "@/lib/bude";
+import { getSessionUser } from "@/lib/auth/verify.server";
+import { voiceForUser } from "@/lib/premium.functions";
 
 const METHODS = new Set(["flower", "edible", "vape", "dab", "drink", "other"]);
 
@@ -40,7 +42,11 @@ export const Route = createFileRoute("/api/buddy")({
             history.push({ role: item.role, text: item.text.slice(0, 800) });
           }
         }
-        const result = await askBuddyModel({ message, history, session: readSession(row.session) });
+        const header = request.headers.get("authorization");
+        const bearer = header?.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : undefined;
+        const user = await getSessionUser(bearer).catch(() => null);
+        const voice = user ? await voiceForUser(user.id).catch(() => undefined) : undefined;
+        const result = await askBuddyModel({ message, history, session: readSession(row.session), voice });
         if (result.reply) return Response.json(result.reply);
         if (result.status === 429) return Response.json({ error: "quota" }, { status: 429 });
         return Response.json({ error: "unavailable" }, { status: 503 });

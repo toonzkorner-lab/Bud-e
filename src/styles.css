@@ -115,6 +115,69 @@ html[data-theme="moon"] {
   --swatch-ink: #f8efe4;
   --swatch-accent: #f0a04b;
 }
+html[data-theme="hours"] {
+  --color-bg: #0c0e12;
+  --color-glow: #2a3140;
+  --color-surface: #141820;
+  --color-card: #1c2330;
+  --color-card-2: #263042;
+  --color-line: #59647a;
+  --color-fg: #f2f4f8;
+  --color-muted: #c0c7d4;
+  --color-accent: #d7c4a3;
+  --color-accent-ink: #1a140c;
+  --color-danger: #ffb0a4;
+  --color-danger-bg: #3c2428;
+}
+
+html[data-theme="velvet"] {
+  --color-bg: #120810;
+  --color-glow: #3a1830;
+  --color-surface: #1a0e16;
+  --color-card: #2a1422;
+  --color-card-2: #3a1c2e;
+  --color-line: #7a4060;
+  --color-fg: #f8eef4;
+  --color-muted: #d4b6c6;
+  --color-accent: #e0a0c8;
+  --color-accent-ink: #1c0a14;
+  --color-danger: #ffb0a4;
+  --color-danger-bg: #3c2428;
+}
+
+html[data-theme="grove"] {
+  --color-bg: #06140c;
+  --color-glow: #14502a;
+  --color-surface: #0c2216;
+  --color-card: #143222;
+  --color-card-2: #1c4430;
+  --color-line: #3e8a58;
+  --color-fg: #f3f8ef;
+  --color-muted: #b7d4be;
+  --color-accent: #9ef07a;
+  --color-accent-ink: #0c2008;
+  --color-danger: #ffb0a4;
+  --color-danger-bg: #3c2420;
+}
+
+.theme-swatch[data-swatch="velvet"] {
+  --swatch-bg: #120810;
+  --swatch-card: #2a1422;
+  --swatch-ink: #f8eef4;
+  --swatch-accent: #e0a0c8;
+}
+.theme-swatch[data-swatch="grove"] {
+  --swatch-bg: #06140c;
+  --swatch-card: #143222;
+  --swatch-ink: #f3f8ef;
+  --swatch-accent: #9ef07a;
+}
+.theme-swatch[data-swatch="hours"] {
+  --swatch-bg: #0c0e12;
+  --swatch-card: #1c2330;
+  --swatch-ink: #f2f4f8;
+  --swatch-accent: #d7c4a3;
+}
 .theme-swatch[data-swatch="moon"] {
   --swatch-bg: #070d14;
   --swatch-card: #152433;
