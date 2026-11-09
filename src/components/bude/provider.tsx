@@ -19,28 +19,23 @@ import {
   timerNoteFor,
   formatDuration,
   waitMinutesFor,
-  type BuddyAction,
   type JarId,
   type JournalEntry,
-  type Safety,
   type Session,
   type StashBook,
   type Vibe,
 } from "@/lib/bude";
 import { askBuddy } from "@/lib/buddy-client";
+import { blankThread, cleanThread, mergeThreads, titleFrom, type ChatMessage, type ChatThread } from "@/lib/chat-threads";
+import { pullChats, removeChat, saveChat, wipeChats } from "@/lib/chats.functions";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { playDone, playPause, playStart, primeAudio, setSoundEnabled } from "@/lib/sounds";
 import { isThemeId, type ThemeId } from "@/lib/themes";
 
 export type Tab = "tonight" | "buddy" | "log" | "stash" | "tools" | "plan" | "you";
 export type ToolId = "timer" | "breathe" | "munchies" | "thoughts" | "trivia" | "guide" | "effects";
 
-export type ChatMessage = {
-  id: string;
-  role: "user" | "bud";
-  text: string;
-  action?: BuddyAction;
-  safety?: Safety;
-};
+export type { ChatMessage };
 
 type Timer =
   | { status: "idle" }
@@ -64,9 +59,16 @@ type Ctx = {
   vibe: Vibe;
   setVibe: <K extends keyof Vibe>(key: K, value: Vibe[K]) => void;
   messages: ChatMessage[];
+  threads: ChatThread[];
+  activeChatId: string;
+  accountChats: boolean;
   pending: boolean;
   send: (text: string) => void;
   clearChat: () => void;
+  newChat: () => void;
+  openChat: (id: string) => void;
+  renameChat: (id: string, title: string) => void;
+  deleteChat: (id: string) => void;
   timer: Timer;
   remainingSec: number | null;
   timerNote: string;
@@ -102,6 +104,7 @@ const KEYS = {
   session: "bude-session-v2",
   vibe: "bude-vibe-v2",
   chat: "bude-chat-v2",
+  threads: "bude-threads-v1",
   timer: "bude-timer-v2",
   journal: "bude-journal-v1",
   stash: "bude-stash-v2",
@@ -137,7 +140,8 @@ export function BudeProvider({ children }: { children: ReactNode }) {
   const [tool, setTool] = useState<ToolId | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [vibe, setVibeState] = useState<Vibe>(EMPTY_VIBE);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [threads, setThreads] = useState<ChatThread[]>([]);
+  const [activeChatId, setActiveChatId] = useState("");
   const [timer, setTimer] = useState<Timer>({ status: "idle" });
   const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [stash, setStash] = useState<StashBook>(emptyBook());
@@ -148,12 +152,35 @@ export function BudeProvider({ children }: { children: ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const sendGen = useRef(0);
   const stashSettled = useRef(false);
+  const { user, isPending } = useCurrentUserState();
+  const userId = user?.id ?? null;
 
   useEffect(() => {
     setAgeState(readJson<Age>(KEYS.age, "unknown"));
     setSession(readJson<Session | null>(KEYS.session, null));
     setVibeState({ ...EMPTY_VIBE, ...readJson<Partial<Vibe>>(KEYS.vibe, {}) });
-    setMessages(readJson<ChatMessage[]>(KEYS.chat, []));
+    const savedThreads = readJson<unknown>(KEYS.threads, null);
+    const legacy = readJson<ChatMessage[]>(KEYS.chat, []);
+    const loaded = Array.isArray(savedThreads) ? savedThreads.flatMap((item) => cleanThread(item) ?? []) : [];
+    if (loaded.length > 0) {
+      setThreads(loaded);
+      setActiveChatId(loaded[0].id);
+    } else if (legacy.length > 0) {
+      const first = legacy.find((msg) => msg.role === "user");
+      const thread: ChatThread = {
+        id: crypto.randomUUID(),
+        title: first ? titleFrom(first.text) : "New chat",
+        renamed: false,
+        updatedAt: Date.now(),
+        messages: legacy.slice(-60),
+      };
+      setThreads([thread]);
+      setActiveChatId(thread.id);
+    } else {
+      const thread = blankThread();
+      setThreads([thread]);
+      setActiveChatId(thread.id);
+    }
     setTimer(hydrateTimer(readJson<Timer | null>(KEYS.timer, null)));
     const savedJournal = readJson<unknown>(KEYS.journal, []);
     setJournal(
@@ -210,8 +237,8 @@ export function BudeProvider({ children }: { children: ReactNode }) {
   }, [vibe, hydrated]);
   useEffect(() => {
     if (!hydrated) return;
-    localStorage.setItem(KEYS.chat, JSON.stringify(messages.slice(-60)));
-  }, [messages, hydrated]);
+    localStorage.setItem(KEYS.threads, JSON.stringify(threads.slice(0, 40)));
+  }, [threads, hydrated]);
   useEffect(() => {
     if (!hydrated) return;
     localStorage.setItem(KEYS.timer, JSON.stringify(timer));
@@ -259,20 +286,112 @@ export function BudeProvider({ children }: { children: ReactNode }) {
   }, []);
   const closeTool = useCallback(() => setTool(null), []);
 
+  const messages = threads.find((thread) => thread.id === activeChatId)?.messages ?? [];
+
+  useEffect(() => {
+    if (!hydrated || isPending || !userId) return;
+    let cancel = false;
+    void (async () => {
+      const remote = await pullChats().catch(() => null);
+      if (cancel || !remote) return;
+      setThreads((local) => {
+        const merged = mergeThreads(local, remote);
+        for (const thread of merged) {
+          const server = remote.find((item) => item.id === thread.id);
+          if (thread.messages.length === 0 && !thread.renamed) continue;
+          if (!server || server.updatedAt < thread.updatedAt) void saveChat({ data: thread }).catch(() => {});
+        }
+        return merged;
+      });
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [hydrated, isPending, userId]);
+
+  useEffect(() => {
+    if (!hydrated || !userId) return;
+    const thread = threads.find((item) => item.id === activeChatId);
+    if (!thread || (thread.messages.length === 0 && !thread.renamed)) return;
+    const handle = window.setTimeout(() => {
+      void saveChat({ data: thread }).catch(() => {});
+    }, 500);
+    return () => window.clearTimeout(handle);
+  }, [threads, activeChatId, hydrated, userId]);
+
   const clearChat = useCallback(() => {
     sendGen.current += 1;
-    setMessages([]);
+    setPending(false);
+    setThreads((list) =>
+      list.map((thread) =>
+        thread.id === activeChatId
+          ? { ...thread, messages: [], title: thread.renamed ? thread.title : "New chat", updatedAt: Date.now() }
+          : thread,
+      ),
+    );
+  }, [activeChatId]);
+
+  const newChat = useCallback(() => {
+    const current = threads.find((thread) => thread.id === activeChatId);
+    if (current && current.messages.length === 0) return;
+    const fresh = blankThread();
+    setThreads((list) => [fresh, ...list].slice(0, 40));
+    setActiveChatId(fresh.id);
+    setPending(false);
+  }, [threads, activeChatId]);
+
+  const openChat = useCallback((id: string) => {
+    setActiveChatId(id);
     setPending(false);
   }, []);
+
+  const renameChat = useCallback((id: string, title: string) => {
+    const next = title.trim().slice(0, 60);
+    if (!next) return;
+    setThreads((list) =>
+      list.map((thread) => (thread.id === id ? { ...thread, title: next, renamed: true, updatedAt: Date.now() } : thread)),
+    );
+  }, []);
+
+  const deleteChat = useCallback(
+    (id: string) => {
+      sendGen.current += 1;
+      setPending(false);
+      setThreads((list) => {
+        const rest = list.filter((thread) => thread.id !== id);
+        if (rest.length === 0) {
+          const fresh = blankThread();
+          if (id === activeChatId) setActiveChatId(fresh.id);
+          return [fresh];
+        }
+        if (id === activeChatId) setActiveChatId(rest[0].id);
+        return rest;
+      });
+      if (userId) void removeChat({ data: id }).catch(() => {});
+    },
+    [activeChatId, userId],
+  );
 
   const send = useCallback(
     (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || pending) return;
       const userMsg: ChatMessage = { id: crypto.randomUUID(), role: "user", text: trimmed };
-      const prior = messages;
+      const prior = threads.find((thread) => thread.id === activeChatId)?.messages ?? [];
+      const chatId = activeChatId;
       const gen = ++sendGen.current;
-      setMessages((m) => [...m, userMsg]);
+      setThreads((list) =>
+        list.map((thread) => {
+          if (thread.id !== chatId) return thread;
+          const hasUser = thread.messages.some((msg) => msg.role === "user");
+          return {
+            ...thread,
+            title: thread.renamed || hasUser ? thread.title : titleFrom(trimmed),
+            updatedAt: Date.now(),
+            messages: [...thread.messages, userMsg].slice(-60),
+          };
+        }),
+      );
       setPending(true);
       const direct = directAnswer(trimmed);
       const local = replyTo(trimmed, session, prior);
@@ -281,20 +400,24 @@ export function BudeProvider({ children }: { children: ReactNode }) {
           direct ??
           (local.safety ? local : ((await askBuddy({ message: trimmed, history: prior, session }).catch(() => null)) ?? local));
         if (sendGen.current !== gen) return;
-        setMessages((m) => [
-          ...m,
-          {
-            id: crypto.randomUUID(),
-            role: "bud",
-            text: reply.text,
-            action: reply.action,
-            safety: reply.safety,
-          },
-        ]);
+        setThreads((list) =>
+          list.map((thread) =>
+            thread.id === chatId
+              ? {
+                  ...thread,
+                  updatedAt: Date.now(),
+                  messages: [
+                    ...thread.messages,
+                    { id: crypto.randomUUID(), role: "bud" as const, text: reply.text, action: reply.action, safety: reply.safety },
+                  ].slice(-60),
+                }
+              : thread,
+          ),
+        );
         setPending(false);
       })();
     },
-    [messages, pending, session],
+    [threads, pending, session, activeChatId],
   );
 
   const startTimer = useCallback((minutes: number) => {
@@ -374,15 +497,18 @@ export function BudeProvider({ children }: { children: ReactNode }) {
   }, []);
   const resetPhone = useCallback(() => {
     sendGen.current += 1;
+    const fresh = blankThread();
     setSession(null);
     setStash(emptyBook());
-    setMessages([]);
+    setThreads([fresh]);
+    setActiveChatId(fresh.id);
     setPending(false);
     setTimer({ status: "idle" });
     setVibeState(EMPTY_VIBE);
     setJournal([]);
     setJournalPrefill(false);
-  }, []);
+    if (userId) void wipeChats().catch(() => {});
+  }, [userId]);
   const adjustStash = useCallback(
     (method: JarId, delta: number) => {
       setStash((book) => adjustBook(book, method, delta, session));
@@ -423,9 +549,16 @@ export function BudeProvider({ children }: { children: ReactNode }) {
     vibe,
     setVibe,
     messages,
+    threads,
+    activeChatId,
+    accountChats: Boolean(userId),
     pending,
     send,
     clearChat,
+    newChat,
+    openChat,
+    renameChat,
+    deleteChat,
     timer,
     remainingSec,
     timerNote,

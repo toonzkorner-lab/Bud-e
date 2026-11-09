@@ -52,7 +52,7 @@ export function AccountScreen() {
         {creating ? "Create account" : "Sign in"}
       </h1>
       <p className="mt-3 text-sm leading-relaxed text-muted">
-        Your log and stash stay on this phone. The account is how Bud-E knows it's you.
+        Your log and stash stay on this phone. Chats save to the account so they follow you.
       </p>
       <form className="mt-6 space-y-3" onSubmit={(event) => void submit(event)}>
         {creating && (

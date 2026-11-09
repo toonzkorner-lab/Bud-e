@@ -166,7 +166,7 @@ export function SettingsPanel() {
           {confirm === "phone" ? (
             <div className="rounded-2xl border border-line bg-surface p-3">
               <p className="text-sm">
-                This clears the log, stash, chat, timer, and tonight. Your account, theme, and sounds stay.
+                This clears the log, stash, chats, timer, and tonight on this account and phone. Your theme and sounds stay.
               </p>
               <div className="mt-3 flex gap-2">
                 <Button

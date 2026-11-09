@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Send } from "lucide-react";
+import { Check, Pencil, Plus, Send, Trash2 } from "lucide-react";
 import { METHODS, dosePhrase } from "@/lib/bude";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
@@ -15,9 +15,13 @@ const PROMPTS = [
 ];
 
 export function BuddyPanel() {
-  const { messages, pending, send, session, setTab, clearChat } = useBude();
+  const { messages, pending, send, session, setTab, clearChat, threads, activeChatId, accountChats, newChat, openChat, renameChat, deleteChat } = useBude();
   const [draft, setDraft] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
+  const [listOpen, setListOpen] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -37,6 +41,13 @@ export function BuddyPanel() {
             <h1 className="font-display text-4xl leading-none font-medium">Buddy</h1>
             <p className="mt-2 text-sm text-muted">Live with Grok. Not a doctor.</p>
           </div>
+          <button
+            type="button"
+            onClick={() => setListOpen((open) => !open)}
+            className="shrink-0 rounded-full border border-line bg-card px-3 py-2 text-sm font-semibold"
+          >
+            {listOpen ? "Close" : "Chats"}
+          </button>
         </div>
 
         <button
@@ -53,6 +64,108 @@ export function BuddyPanel() {
             <span className="text-muted">No dose logged — tap to add one so answers use your numbers.</span>
           )}
         </button>
+
+        {listOpen && (
+          <div className="rounded-card border border-line bg-card p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm text-muted">{accountChats ? "Saved to your account." : "On this phone until you sign in."}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  newChat();
+                  setListOpen(false);
+                  setEditing(null);
+                }}
+                className="inline-flex shrink-0 items-center gap-1 rounded-full border border-line px-3 py-1.5 text-sm font-semibold"
+              >
+                <Plus className="size-3.5" aria-hidden />
+                New
+              </button>
+            </div>
+            <ul className="mt-3 max-h-64 space-y-2 overflow-y-auto">
+              {threads.map((thread) => {
+                const active = thread.id === activeChatId;
+                return (
+                  <li key={thread.id} className={cn("rounded-2xl border px-3 py-2", active ? "border-accent bg-surface" : "border-line")}>
+                    {editing === thread.id ? (
+                      <form
+                        className="flex gap-2"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          renameChat(thread.id, name);
+                          setEditing(null);
+                        }}
+                      >
+                        <input
+                          value={name}
+                          aria-label="Chat name"
+                          onChange={(event) => setName(event.target.value)}
+                          className="min-h-10 w-full rounded-xl border border-line bg-card px-3 text-sm outline-none focus:border-accent"
+                        />
+                        <button type="submit" aria-label="Save name" className="text-accent">
+                          <Check className="size-4" />
+                        </button>
+                      </form>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 text-left"
+                          onClick={() => {
+                            openChat(thread.id);
+                            setListOpen(false);
+                          }}
+                        >
+                          <span className="block truncate text-sm font-semibold">{thread.title}</span>
+                          <span className="text-xs text-muted">
+                            {thread.messages.length === 0
+                              ? "Empty"
+                              : thread.messages.length === 1
+                                ? "1 message"
+                                : `${thread.messages.length} messages`}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Rename ${thread.title}`}
+                          className="text-muted"
+                          onClick={() => {
+                            setEditing(thread.id);
+                            setName(thread.title);
+                            setConfirmDelete(null);
+                          }}
+                        >
+                          <Pencil className="size-4" />
+                        </button>
+                        {confirmDelete === thread.id ? (
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-danger"
+                            onClick={() => {
+                              deleteChat(thread.id);
+                              setConfirmDelete(null);
+                            }}
+                          >
+                            Delete
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            aria-label={`Delete ${thread.title}`}
+                            className="text-muted"
+                            onClick={() => setConfirmDelete(thread.id)}
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
 
         {messages.length === 0 && !pending && (
           <div className="rounded-card border border-line bg-card px-4 py-4">

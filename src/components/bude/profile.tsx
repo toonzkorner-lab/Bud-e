@@ -133,7 +133,7 @@ export function ProfilePanel() {
               : `${stocked} stash jars have something in them.`}
         </p>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          The log and stash stay on this phone. They are not saved to the account.
+          The log and stash stay on this phone. Chats are saved to this account.
         </p>
       </Card>
 
